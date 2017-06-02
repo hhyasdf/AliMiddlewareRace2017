@@ -179,7 +179,7 @@ public class DefaultBytesMessage implements BytesMessage {
         String[] headers = headerAndProperties[0].split(" ");
         String[] properties = null;
         if(headerAndProperties.length == 2) {
-            properties = headerAndProperties[2].split(" ");
+            properties = headerAndProperties[1].split(" ");
         }
 
         for (String header : headers) {
