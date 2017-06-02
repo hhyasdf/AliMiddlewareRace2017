@@ -61,4 +61,8 @@ public class DefaultKeyValue implements KeyValue {
     public boolean containsKey(String key) {
         return kvs.containsKey(key);
     }
+
+    public Object getObject(String key) {
+        return kvs.get(key);
+    }
 }

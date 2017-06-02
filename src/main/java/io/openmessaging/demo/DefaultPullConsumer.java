@@ -3,6 +3,11 @@ package io.openmessaging.demo;
 import io.openmessaging.KeyValue;
 import io.openmessaging.Message;
 import io.openmessaging.PullConsumer;
+
+import java.io.File;
+import java.io.RandomAccessFile;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -10,16 +15,49 @@ import java.util.List;
 import java.util.Set;
 
 public class DefaultPullConsumer implements PullConsumer {
-    private MessageStore messageStore = MessageStore.getInstance();
+//    public volatile int consumerCounter = 0;
+
+//    private MessageStore messageStore = MessageStore.getInstance();
     private KeyValue properties;
     private String queue;
-    private Set<String> buckets = new HashSet<>();
-    private List<String> bucketList = new ArrayList<>();
+    private Set<Integer> buckets = new HashSet<>();
 
-    private int lastIndex = 0;
+    private List<FileChannel> messageFileQueue = null;
+    private MappedByteBuffer mappedByteBuffer = null;
+
+//    private List<Message> messageBuffer = new ArrayList<>();
+
+//    private int id = 0;
+
+//    private static Lock idLock = new ReentrantLock();
+
 
     public DefaultPullConsumer(KeyValue properties) {
         this.properties = properties;
+//        this.messageStore.initMessageFileList(properties.getString("STORE_PATH"));
+
+        String storagePath = properties.getString("STORE_PATH");
+
+        if (this.messageFileQueue == null) {
+            this.messageFileQueue = new ArrayList<>();
+            File storageFolder = new File(storagePath);
+            for (String forder : storageFolder.list()) {
+                for (String file : (new File(storagePath + "/" + forder)).list()) {
+                    try {
+                        this.messageFileQueue.add(new RandomAccessFile(storagePath + "/" + forder + "/" + file, "rw").getChannel());
+                    } catch (Exception e) {
+                        System.out.println("Cannot read file: " + e);
+                    }
+                }
+            }
+        }
+
+//        idLock.lock();
+//        try {
+//            this.id  = consumerCounter++;
+//        } finally {
+//            idLock.unlock();
+//        }
     }
 
 
@@ -28,17 +66,42 @@ public class DefaultPullConsumer implements PullConsumer {
     }
 
 
-    @Override public synchronized Message poll() {
-        if (buckets.size() == 0 || queue == null) {
-            return null;
-        }
+    @Override public Message poll() {
 
-        for (int i = 0; i < bucketList.size(); i++) {
-            Message message = messageStore.pullMessage(queue, bucketList.get(i));
-            if (message != null) {
-                return message;
+        while (true) {
+            if (this.mappedByteBuffer == null) {
+                if (this.messageFileQueue.size() == 0) break;
+                try {
+                    this.mappedByteBuffer = this.messageFileQueue.get(0).map(FileChannel.MapMode.READ_ONLY, 0, MessageStore.FILESIZE);
+                    this.messageFileQueue.remove(0);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+            byte[] messageLengthBytes = new byte[4];
+            this.mappedByteBuffer.get(messageLengthBytes);
+            int messageLength = DefaultBytesMessage.bytesToInt(messageLengthBytes);
+
+            if(messageLength == 0) {
+                this.mappedByteBuffer = null;
+                continue;
+            }
+
+            byte[] topicOrQueueBytes = new byte[4];
+            this.mappedByteBuffer.get(topicOrQueueBytes);
+            int topicOrQueue = DefaultBytesMessage.bytesToInt(topicOrQueueBytes);
+
+            if (this.buckets.contains(topicOrQueue)) {
+                byte[] messageBytes = new byte[messageLength];
+                this.mappedByteBuffer.get(messageBytes);
+                Message m = DefaultBytesMessage.retransferToMessage(messageBytes);
+                return m;
+            } else {
+                this.mappedByteBuffer.position(this.mappedByteBuffer.position() + messageLength);
             }
         }
+
         return null;
     }
 
@@ -59,11 +122,10 @@ public class DefaultPullConsumer implements PullConsumer {
             throw new ClientOMSException("You have alreadly attached to a queue " + queue);
         }
         queue = queueName;
-        buckets.add(queueName);
-        buckets.addAll(topics);
-        bucketList.clear();
-        bucketList.addAll(buckets);
+        buckets.add(queueName.hashCode());
+        for (String topic : topics) {
+            buckets.add(topic.hashCode());
+        }
     }
-
 
 }
