@@ -95,8 +95,7 @@ public class DefaultPullConsumer implements PullConsumer {
             if (this.buckets.contains(topicOrQueue)) {
                 byte[] messageBytes = new byte[messageLength];
                 this.mappedByteBuffer.get(messageBytes);
-                Message m = DefaultBytesMessage.retransferToMessage(messageBytes);
-                return m;
+                return DefaultBytesMessage.retransferToMessage(messageBytes);
             } else {
                 this.mappedByteBuffer.position(this.mappedByteBuffer.position() + messageLength);
             }
